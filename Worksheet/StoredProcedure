@@ -1,0 +1,15 @@
+CREATE OR REPLACE PROCEDURE myproc(from_table STRING, to_table STRING, count INT)
+  RETURNS STRING
+  LANGUAGE PYTHON
+  RUNTIME_VERSION = '3.9'
+  PACKAGES = ('snowflake-snowpark-python')
+  HANDLER = 'run'
+as
+$$
+def run(session, from_table, to_table, count):
+  return count
+$$;
+
+
+
+CALL myproc('table_a', 'table_b', 6);
