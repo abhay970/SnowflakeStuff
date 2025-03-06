@@ -9,7 +9,5 @@ $$
 def run(session, from_table, to_table, count):
   return count
 $$;
-
-
-
+//call here
 CALL myproc('table_a', 'table_b', 6);
