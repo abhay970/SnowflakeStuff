@@ -1,0 +1,37 @@
+CREATE OR REPLACE PROCEDURE get_case_fields()
+RETURNS ARRAY
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python', 'simple-salesforce')
+EXTERNAL_ACCESS_INTEGRATIONS = (salesforce_access_integration)
+HANDLER = 'run'
+AS
+$$
+import json
+from simple_salesforce import Salesforce
+
+def run(session):
+    # Retrieve credentials from Snowflake table
+    secret_query = "SELECT username, password, token FROM salesforce_credentials"
+    creds = session.sql(secret_query).collect()[0]
+    SALESFORCE_USERNAME = creds[0]
+    SALESFORCE_PASSWORD = creds[1]
+    SALESFORCE_SECURITY_TOKEN = creds[2]
+
+    # Connect to Salesforce
+    sf = Salesforce(
+        username=SALESFORCE_USERNAME,
+        password=SALESFORCE_PASSWORD,
+        security_token=SALESFORCE_SECURITY_TOKEN
+    )
+
+    # Get Case object field details
+    case_desc = sf.Case.describe()
+    field_list = [field['name'] for field in case_desc['fields']]
+
+    return field_list  # Returns list of field names
+
+$$;
+
+CALL get_case_fields();
+
