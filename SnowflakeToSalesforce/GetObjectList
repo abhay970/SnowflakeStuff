@@ -1,0 +1,38 @@
+CREATE OR REPLACE PROCEDURE get_salesforce_objects()
+RETURNS ARRAY
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python', 'simple-salesforce')
+EXTERNAL_ACCESS_INTEGRATIONS = (salesforce_access_integration)
+HANDLER = 'run'
+AS
+$$
+import json
+from simple_salesforce import Salesforce
+
+def run(session):
+    # Retrieve credentials from Snowflake table
+    secret_query = "SELECT username, password, token FROM salesforce_credentials"
+    creds = session.sql(secret_query).collect()[0]
+    SALESFORCE_USERNAME = creds[0]
+    SALESFORCE_PASSWORD = creds[1]
+    SALESFORCE_SECURITY_TOKEN = creds[2]
+
+    # Connect to Salesforce
+    sf = Salesforce(
+        username=SALESFORCE_USERNAME,
+        password=SALESFORCE_PASSWORD,
+        security_token=SALESFORCE_SECURITY_TOKEN
+    )
+
+    # Get list of Salesforce objects
+    global_desc = sf.describe()
+    object_list = [obj['name'] for obj in global_desc['sobjects']]
+
+    return object_list  # Returns list of objects
+
+$$;
+
+
+
+CALL get_salesforce_objects();
