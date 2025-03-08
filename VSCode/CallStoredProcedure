@@ -1,0 +1,53 @@
+import requests
+import json
+
+# Constants
+BASE_URL = "https://hugqphc-esb95683.snowflakecomputing.com"
+ENDPOINT = f"{BASE_URL}/api/v2/statements"
+BEARER_TOKEN = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIVUdRUEhDLUVTQjk1NjgzLktBU0VUVEkxMjM0NS5TSEEyNTY6NkFWNCtjV0pGRUZyRnZHM0lVVFZkVkVwZ3I5RWtJUENyWjVDT2YzWnlKWT0iLCJzdWIiOiJIVUdRUEhDLUVTQjk1NjgzLktBU0VUVEkxMjM0NSIsImlhdCI6MTc0MTQxMDQxNiwiZXhwIjoxNzQxNDk2ODE2fQ.LKrqFonBa0Q1E9sXhSheHX7ruRRiHO-1WfkK-TCrfXS6pnjHkyjiGcvdDuxHoto5gVOrAv-A4PualeXMmDSzs-s8Ru1rRZ7ymY3nc57Ee-qStTOwHxrKSSEf5WA_GJXPMKzMTJXJIobNUEgLS19mKquohh1E3dYrQlHa1kiW7XhFvwEJcZrMajF-U7eYnkeCBrq7wtquft3QJYDveJczY__dSExlQbnHiF2tJ6yjvVBRlptW7USQMMoOBtzzM3x-tZV4gCPN3vO2BfdP1JORSOPMW344kEmDWB68ntggJnEi7AAgyyixOBjs7IaHFGl3Xw63AHMzTpF9P5M32fDBfA"  # Replace with an actual valid token
+
+# Headers
+def get_headers():
+    return {
+        "Authorization": f"Bearer {BEARER_TOKEN}",
+        "X-Snowflake-Authorization-Token-Type": "KEYPAIR_JWT",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Python-Requests"
+    }
+
+# Create JSON payload
+def create_payload(parameter_value):
+    return {
+        "statement": f"CALL MY_DATABASE.MY_SCHEMA.HELLO_SQL('{parameter_value}');",
+        "timeout": 1000,  # Fix: Use integer, not string
+        "warehouse": "MY_WH",
+        "database": "MY_DATABASE",
+        "schema": "MY_SCHEMA",
+        "role": "PUBLIC"
+    }
+
+# Call Snowflake API
+def call_snowflake_api(parameter_value):
+    payload = create_payload(parameter_value)
+    headers = get_headers()
+
+    # Debugging: Print the payload before sending
+    print("🔹 Payload Sent to Snowflake:")
+    print(json.dumps(payload, indent=2))
+
+    # Send the API request
+    response = requests.post(ENDPOINT, headers=headers, json=payload)
+
+    # Debugging: Print response details
+    print("\n📩 Status Code:", response.status_code)
+    try:
+        print("📜 Response:", json.dumps(response.json(), indent=2))
+    except json.JSONDecodeError:
+        print("❌ Failed to decode JSON response:", response.text)
+
+    return response
+
+# Example function call
+user_input = "Hello Akjbhjkhbksdjbv"
+call_snowflake_api(user_input)
