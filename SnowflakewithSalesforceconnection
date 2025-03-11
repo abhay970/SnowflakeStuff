@@ -1,0 +1,181 @@
+-- Create a database
+CREATE OR REPLACE DATABASE salesforce_db;
+USE DATABASE salesforce_db;
+-- Create a schema
+CREATE OR REPLACE SCHEMA salesforce_schema;
+USE SCHEMA salesforce_schema;
+-- Create a table to store data
+CREATE OR REPLACE TABLE my_table (
+    id INT AUTOINCREMENT PRIMARY KEY,
+    name STRING,
+    email STRING,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+-- Create a stream to track inserts
+CREATE OR REPLACE STREAM my_table_stream ON TABLE my_table;
+-- Insert sample data
+INSERT INTO my_table (name, email) VALUES
+('John Doe', 'john.doe@example.com'),
+('Jane Smith', 'jane.smith@example.com');
+-- Query the stream to see new data
+SELECT * FROM my_table_stream;
+-- Create a Network Rule for Salesforce
+CREATE OR REPLACE NETWORK RULE allow_salesforce_rule
+  MODE = EGRESS
+  TYPE = HOST_PORT
+  VALUE_LIST = ('login.salesforce.com');
+-- Create an External Access Integration
+CREATE OR REPLACE EXTERNAL ACCESS INTEGRATION salesforce_access_integration
+  ALLOWED_NETWORK_RULES = (allow_salesforce_rule)
+  ENABLED = TRUE;
+-- Store Salesforce Credentials Securely
+CREATE OR REPLACE SECRET salesforce_secret
+  TYPE = GENERIC_STRING
+  SECRET_STRING = '{"username":"abhay.kumar.yadav@techkasetti.com2025/02/16_11-40-54.demo", "password":"Abhay@12345", "token":"f1hXmb7CaVvps4dZ9uq7kNHd"}';
+-- Create a Secure Snowflake Procedure for Data Transfer
+CREATE OR REPLACE PROCEDURE transfer_to_salesforce()
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python', 'simple-salesforce')
+EXTERNAL_ACCESS_INTEGRATIONS = (salesforce_access_integration)
+HANDLER = 'run'
+AS
+$$
+import json
+from simple_salesforce import Salesforce
+def run(session):
+    # Retrieve credentials from Snowflake table
+    secret_query = "SELECT username, password, token FROM salesforce_credentials"
+    creds = session.sql(secret_query).collect()[0]
+    SALESFORCE_USERNAME = creds[0]
+    SALESFORCE_PASSWORD = creds[1]
+    SALESFORCE_SECURITY_TOKEN = creds[2]
+    # Fetch new records from Snowflake
+    new_data = session.sql("""
+        SELECT id, name, email
+        FROM my_table_stream
+        WHERE METADATA$ACTION = 'INSERT'
+    """).collect()
+    # Connect to Salesforce
+    sf = Salesforce(
+        username=SALESFORCE_USERNAME,
+        password=SALESFORCE_PASSWORD,
+        security_token=SALESFORCE_SECURITY_TOKEN
+    )
+    # Insert records into Salesforce
+    for row in new_data:
+        record_id, name, email = row
+        sf.SnowflakeData__c.create({
+            'Name': name,
+            'Email__c': email,
+            'External_Id__c': f'SNOWFLAKE_{record_id}'
+        })
+        print(f"Inserted record: {name}, {email}")
+    # Commit transaction
+    session.sql("COMMIT").collect()
+    return "Data transfer completed"
+$$;
+
+SHOW EXTERNAL ACCESS INTEGRATIONS;
+
+CREATE OR REPLACE NETWORK RULE allow_salesforce_rule
+  MODE = EGRESS
+  TYPE = HOST_PORT
+  VALUE_LIST = ('login.salesforce.com', 'test.salesforce.com', 'ka1739686271372.my.salesforce.com');
+
+  CREATE OR REPLACE EXTERNAL ACCESS INTEGRATION salesforce_access_integration
+  ALLOWED_NETWORK_RULES = (allow_salesforce_rule)
+  ENABLED = TRUE;
+
+-- CREATE OR REPLACE TABLE salesforce_credentials (
+--     username STRING,
+--     password STRING,
+--     token STRING
+-- );
+-- -- Insert credentials (Use role with necessary permissions)
+-- INSERT INTO salesforce_credentials (username, password, token)
+-- VALUES ('abhay.kumar.yadav@techkasetti.com2025/02/16_11-40-54.demo', 'Abhay@12345', 'f1hXmb7CaVvps4dZ9uq7kNHd');
+
+-- Call the procedure
+CALL transfer_to_salesforce();
+
+---------------------------------------------------------------------------------------getting Object-----------------------------------------
+CREATE OR REPLACE PROCEDURE get_salesforce_objects()
+RETURNS ARRAY
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python', 'simple-salesforce')
+EXTERNAL_ACCESS_INTEGRATIONS = (salesforce_access_integration)
+HANDLER = 'run'
+AS
+$$
+import json
+from simple_salesforce import Salesforce
+
+def run(session):
+    # Retrieve credentials from Snowflake table
+    secret_query = "SELECT username, password, token FROM salesforce_credentials"
+    creds = session.sql(secret_query).collect()[0]
+    SALESFORCE_USERNAME = creds[0]
+    SALESFORCE_PASSWORD = creds[1]
+    SALESFORCE_SECURITY_TOKEN = creds[2]
+
+    # Connect to Salesforce
+    sf = Salesforce(
+        username=SALESFORCE_USERNAME,
+        password=SALESFORCE_PASSWORD,
+        security_token=SALESFORCE_SECURITY_TOKEN
+    )
+
+    # Get list of Salesforce objects
+    global_desc = sf.describe()
+    object_list = [obj['name'] for obj in global_desc['sobjects']]
+
+    return object_list  # Returns list of objects
+
+$$;
+
+
+
+CALL get_salesforce_objects();
+
+-----------------------------------------------------------------------------------------------salesforce list of Fields------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE get_case_fields()
+RETURNS ARRAY
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python', 'simple-salesforce')
+EXTERNAL_ACCESS_INTEGRATIONS = (salesforce_access_integration)
+HANDLER = 'run'
+AS
+$$
+import json
+from simple_salesforce import Salesforce
+
+def run(session):
+    # Retrieve credentials from Snowflake table
+    secret_query = "SELECT username, password, token FROM salesforce_credentials"
+    creds = session.sql(secret_query).collect()[0]
+    SALESFORCE_USERNAME = creds[0]
+    SALESFORCE_PASSWORD = creds[1]
+    SALESFORCE_SECURITY_TOKEN = creds[2]
+
+    # Connect to Salesforce
+    sf = Salesforce(
+        username=SALESFORCE_USERNAME,
+        password=SALESFORCE_PASSWORD,
+        security_token=SALESFORCE_SECURITY_TOKEN
+    )
+
+    # Get Case object field details
+    case_desc = sf.Case.describe()
+    field_list = [field['name'] for field in case_desc['fields']]
+
+    return field_list  # Returns list of field names
+
+$$;
+
+CALL get_case_fields();
+
+Select * from JFSFMapping;
