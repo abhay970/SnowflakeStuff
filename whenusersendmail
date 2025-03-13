@@ -1,0 +1,154 @@
+CREATE OR REPLACE PROCEDURE procedureUptoReview1(pathOfFile STRING)
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'main'
+AS 
+$$
+from snowflake.snowpark.context import get_active_session
+import json
+
+def create_session():
+    """Create and return a Snowflake session."""
+    return get_active_session()
+
+def fetch_rawjson_data(session, case_id):
+    """Fetch rawjson column records from DocAIParseJson."""
+    query = f"""
+        SELECT rawjson FROM SALESFORCE_DB.SALESFORCE_SCHEMA.DocAIParseJson
+        WHERE rawjson IS NOT NULL AND caseId='{case_id}';
+    """
+    return session.sql(query).collect()
+
+def fetch_mapping_data(session):
+    """Fetch all records from JFSFMapping."""
+    query = "SELECT KEYFIELD, CONFIDENCESCORE FROM SALESFORCE_DB.SALESFORCE_SCHEMA.JFSFMapping;"
+    return session.sql(query).collect()
+
+def process_rawjson_data(result_variant):
+    """Process and format results for the rawjson column."""
+    formatted_results = []
+    if result_variant:
+        for row in result_variant:
+            rawjson_data = json.loads(row.RAWJSON)
+            for field, values in rawjson_data.items():
+                if isinstance(values, list):
+                    for item in values:
+                        if isinstance(item, dict):
+                            formatted_results.append({
+                                "field": field,
+                                "value": item.get("value", ""),
+                                "confidence": item.get("score", "")
+                            })
+                        else:
+                            formatted_results.append({
+                                "field": field,
+                                "value": item,
+                                "confidence": ""
+                            })
+                elif isinstance(values, dict):
+                    formatted_results.append({
+                        "field": field,
+                        "value": values.get("value", ""),
+                        "confidence": values.get("score", "")
+                    })
+                else:
+                    formatted_results.append({
+                        "field": field,
+                        "value": values,
+                        "confidence": ""
+                    })
+    return formatted_results
+
+def process_mapping_data(result_mapping):
+    """Process and format results for the mapping records."""
+    return [{"Key": row.KEYFIELD, "Value": row.CONFIDENCESCORE} for row in result_mapping]
+
+def merge_data(json1, json2):
+    """Merge rawjson data with mapping data based on confidence scores."""
+    confidence_map = {item["Key"]: float(item["Value"]) for item in json2}
+    merged_data = []
+    for item in json1:
+        field = item["field"]
+        value = item["value"]
+        confidence = float(item["confidence"]) if item["confidence"] else 0
+        threshold = confidence_map.get(field, 0)
+        merged_data.append({
+            "field": field,
+            "Value": value,
+            "confidence": confidence,
+            "isConfidenceMet": confidence >= threshold
+        })
+    return merged_data
+
+def insert_dynamic_data(session, json_data, case_id):
+    """Insert dynamically generated JSON into DataforReview table in a single API call."""
+    if not json_data:
+        return "⚠️ No data to insert."
+
+    values_clause = ", ".join([
+        f"('{record['field']}', '{record['Value']}', {record['confidence']}, {record['isConfidenceMet']}, FALSE, NULL, NULL, '{case_id}')"
+        for record in json_data
+    ])
+
+    sql = f"""
+        INSERT INTO SALESFORCE_DB.SALESFORCE_SCHEMA.DataforReview 
+        (field, Value, confidence, isConfidenceMet, isProcessed, NewValue, Modifiedby, caseId)
+        VALUES {values_clause}
+    """
+
+    session.sql(sql).collect()  # Single API call for all inserts
+    return "✅ Dynamic JSON inserted successfully in one API call!"
+
+def main_for_insert_DataForReview(case_id):
+    session = create_session()
+    rawjson_result = fetch_rawjson_data(session, case_id)
+    mapping_result = fetch_mapping_data(session)
+    processed_rawjson = process_rawjson_data(rawjson_result)
+    processed_mapping = process_mapping_data(mapping_result)
+    merged_data = merge_data(processed_rawjson, processed_mapping)
+    insert_dynamic_data(session, merged_data, case_id)
+
+def insertDocAIParseJson(pathOfFile: str, json_data: str) -> str:
+    case_id = pathOfFile.split('/')[0]
+    try:
+        session = get_active_session()
+        insert_query = f"""
+            INSERT INTO DocAIParseJson (caseId, rawjson)
+            SELECT '{case_id}', PARSE_JSON('{json_data}')
+        """
+        session.sql(insert_query).collect()
+        return "Success"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+def main(pathOfFile: str) -> str:
+    try:
+        session = get_active_session()
+        query = f"""
+            SELECT SALESFORCE_DB.SALESFORCE_SCHEMA.INSURANCE_CLAIM!PREDICT(
+                GET_PRESIGNED_URL(@idp_s3_stage, '{pathOfFile}'), 1)
+        """
+        result = session.sql(query).collect()
+        json_str = result[0][0] if result else "{}"
+        insertDocAIParseJson(pathOfFile, json_str)
+        case_id = pathOfFile.split('/')[0]
+        main_for_insert_DataForReview(case_id)
+        return json.dumps(json.loads(json_str))
+    except Exception as e:
+        return f"Error: {str(e)}"
+$$;
+
+SHOW PROCEDURES IN SALESFORCE_DB.SALESFORCE_SCHEMA;
+
+GRANT USAGE ON WAREHOUSE COMPUTE_WH TO ROLE PUBLIC;
+GRANT USAGE ON DATABASE SALESFORCE_DB TO ROLE PUBLIC;
+GRANT USAGE ON SCHEMA SALESFORCE_DB.SALESFORCE_SCHEMA TO ROLE PUBLIC;
+GRANT USAGE ON PROCEDURE SALESFORCE_DB.SALESFORCE_SCHEMA.procedureUptoReview1(STRING) TO ROLE PUBLIC;
+
+
+LIST @IDP_S3_STAGE;
+
+CALL procedureUptoReview1('001/Insurance-Claim-Form (2).pdf');
+
