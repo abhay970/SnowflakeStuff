@@ -1,0 +1,141 @@
+import streamlit as st
+from snowflake.snowpark.context import get_active_session
+
+# Get active session
+session = get_active_session()
+
+# SQL query to fetch main records
+query_main = """
+SELECT ID, FIELD, VALUE, CONFIDENCE, CASEID 
+FROM DataforReview 
+WHERE isConfidenceMet = FALSE 
+AND isProcessed = FALSE;
+"""
+
+# Execute query and convert to Pandas DataFrame
+df_main = session.sql(query_main).to_pandas()
+
+# Initialize session state for navigation
+if "page" not in st.session_state:
+    st.session_state["page"] = "home"
+
+# Function to fetch review data based on CASEID
+def fetch_review_data(case_id):
+    query_review = f"""
+    SELECT ID, FIELD, VALUE, CONFIDENCE, NewValue 
+    FROM DataforReview 
+    WHERE isConfidenceMet = FALSE 
+    AND isProcessed = FALSE 
+    AND CASEID = '{case_id}';
+    """
+    df = session.sql(query_review).to_pandas()
+
+    # Ensure 'NewValue' column exists; if not, create it with empty values
+    if 'NewValue' not in df.columns:
+        df["NewValue"] = ""  # Assign empty string to avoid KeyError
+
+    return df
+
+# Function to update records when Save button is clicked
+def save_review_data(case_id, new_values):
+    for index, new_value in new_values.items():
+        if new_value.strip():  # Ensure non-empty values only
+            update_query = f"""
+            UPDATE DataforReview
+            SET 
+                isProcessed = TRUE,
+                NewValue = '{new_value}',
+                Modifiedby = (SELECT CURRENT_USER()),
+                Modifydatetime = CURRENT_TIMESTAMP
+            WHERE CASEID = '{case_id}' AND ID = {index};
+            """
+            session.sql(update_query).collect()
+
+    st.success("Review data saved successfully!")
+    go_back()  # Return to home page
+
+# Function to go to Review Page
+def go_to_review(case_id):
+    st.session_state["selected_case"] = case_id
+    st.session_state["page"] = "review"
+    st.rerun()  # Refresh the app to update UI
+
+# Function to go back to Home Page
+def go_back():
+    st.session_state["page"] = "home"
+    st.rerun()  # Refresh the app to go back
+
+# --- Page Routing ---
+if st.session_state["page"] == "home":
+    # Home Page
+    st.title("Data for Review")
+    
+    # Table Header
+    col1, col2, col3, col4, col5, col6 = st.columns([1, 2, 3, 2, 2, 2])
+    col2.write("**FIELD**")
+    col3.write("**VALUE**")
+    col4.write("**CONFIDENCE**")
+    col5.write("**CASEID**")
+    col6.write("**Action**")
+
+    # Display table with "Review" buttons
+    for index, row in df_main.iterrows():
+        col1, col2, col3, col4, col5, col6 = st.columns([1, 2, 3, 2, 2, 2])
+        
+        col2.write(row["FIELD"])
+        col3.write(row["VALUE"])
+        col4.write(row["CONFIDENCE"])
+        col5.write(row["CASEID"])
+        
+        # "Review" button for each row
+        if col6.button("Review", key=f"review_{row['ID']}"):
+            go_to_review(row["CASEID"])
+
+elif st.session_state["page"] == "review":
+    # Review Page
+    st.title("Review Page")
+
+    # Fetch review data for selected CASEID
+    case_id = st.session_state.get("selected_case", None)
+    if case_id:
+        df_review = fetch_review_data(case_id)
+
+        # Store inputs in session state
+        if "new_values" not in st.session_state:
+            st.session_state["new_values"] = {}
+
+        # Table Header
+        col1, col2, col3, col4, col5 = st.columns([1, 2, 3, 2, 2])
+        col2.write("**FIELD**")
+        col3.write("**VALUE**")
+        col4.write("**CONFIDENCE**")
+        col5.write("**New Value**")
+
+        # Display review data
+        for index, row in df_review.iterrows():
+            col1, col2, col3, col4, col5 = st.columns([1, 2, 3, 2, 2])
+            
+            col2.write(row["FIELD"])
+            col3.write(row["VALUE"])
+            col4.write(row["CONFIDENCE"])
+
+            # Input field for 'Met' column with proper alignment
+            new_value_key = row["ID"]  # Using ID as key to update specific rows
+            new_value = st.session_state["new_values"].get(new_value_key, row["NewValue"])
+            st.session_state["new_values"][new_value_key] = col5.text_input(
+                label="", 
+                value=new_value, 
+                key=f"new_value_{new_value_key}", 
+                label_visibility="collapsed"
+            )
+
+    # Properly aligned buttons: Back (left) & Save (right)
+    col_back, col_save = st.columns([3, 7])
+    
+    with col_back:
+        if st.button("⬅ Back"):
+            go_back()
+
+    with col_save:
+        if st.button("💾 Save", use_container_width=True):
+            save_review_data(case_id, st.session_state["new_values"])
