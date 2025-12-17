@@ -1,0 +1,125 @@
+Snowflake acoount : Username: ABHAYONBOARDING1
+Dedicated Login URL: https://wdgkqgy-jqb62958.snowflakecomputing.com
+Pwd : Abhay@12345678
+
+Salesforce Account :
+abhay@kasetti.sandbox
+  and pwd: Kasetti@555
+
+----------------Execte in snowflake 
+CREATE or replace SECURITY INTEGRATION SALESFORCE_OAUTH_INTEGRATION
+  TYPE = OAUTH
+  ENABLED = TRUE
+  OAUTH_CLIENT = CUSTOM
+  OAUTH_CLIENT_TYPE = 'CONFIDENTIAL'
+  OAUTH_REDIRECT_URI = 'https://kasetti2-dev-ed.develop.my.salesforce.com/services/authcallback/snowflake_salesforce'
+  OAUTH_ISSUE_REFRESH_TOKENS = TRUE
+  OAUTH_ALLOW_NON_TLS_REDIRECT_URI = FALSE
+  OAUTH_ENFORCE_PKCE = FALSE
+  BLOCKED_ROLES_LIST = ()
+  OAUTH_USE_SECONDARY_ROLES = 'IMPLICIT';
+//OAUTH_REDIRECT_URI ----use according to salesforce org
+  -- Get new configuration
+DESCRIBE SECURITY INTEGRATION SALESFORCE_OAUTH_INTEGRATION;
+
+-- Get new client secret
+SELECT SYSTEM$SHOW_OAUTH_CLIENT_SECRETS('SALESFORCE_OAUTH_INTEGRATION');
+
+SELECT SYSTEM$SHOW_OAUTH_CLIENT_SECRETS('SALESFORCE_OAUTH_INTEGRATION');
+
+—--------here get the secret key and 
+
+ALTER USER ABHAYONBOARDING1 SET DEFAULT_ROLE =ACCOUNTADMIN;
+GRANT ROLE ACCOUNTADMIN TO USER ABHAYONBOARDING1;
+GRANT USAGE ON SECURITY INTEGRATION SALESFORCE_OAUTH_INTEGRATION TO ROLE ACCOUNTADMIN;
+
+ALTER USER ABHAYONBOARDING1 SET DEFAULT_ROLE = ACCOUNTADMIN;
+GRANT ROLE ACCOUNTADMIN TO USER ABHAYONBOARDING1;
+
+GRANT USAGE ON SECURITY INTEGRATION SALESFORCE_OAUTH_INTEGRATION TO ROLE ACCOUNTADMIN;
+
+GRANT ROLE SYSADMIN TO USER ABHAYONBOARDING1;
+ALTER USER ABHAYONBOARDING1 SET DEFAULT_ROLE = SYSADMIN;
+
+CREATE OR REPLACE TABLE ab.abha.customer_demo (
+    id INT AUTOINCREMENT,
+    name STRING,
+    email STRING,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO ab.abha.customer_demo (name, email)
+VALUES 
+  ('Alice', 'alice@example.com'),
+  ('Bob', 'bob@example.com'),
+  ('Charlie', 'charlie@example.com');
+------------------------------------------------------now in salesforce ----------------------
+  Auth. Provider 
+  create new :
+put all required information , using this get all infromation from snowfake : DESCRIBE SECURITY INTEGRATION SALESFORCE_OAUTH_INTEGRATION; and SELECT SYSTEM$SHOW_OAUTH_CLIENT_SECRETS('SALESFORCE_OAUTH_INTEGRATION');
+
+once it is done , then go to name credential click New legacy
+
+give any name of name credentials 
+and Identity Type	Named Principal
+Authentication Protocol	OAuth 2.0
+Authentication Provider : select here Auth Providers 
+Scope	session:role:SYSADMIN
+
+when you save then snowflake login pup-up will be appear , then login it :
+exammple  i have use this snowflake account : Username: ABHAYONBOARDING1
+Dedicated Login URL: https://wdgkqgy-jqb62958.snowflakecomputing.com
+Pwd : Abhay@12345678
+
+now put snowflake in Remote site sittings  and cretae apex class:
+SnowflakeService
+
+  code : public with sharing class SnowflakeService {
+
+    private static final String NAMED_CRED = 'snowdlake';
+
+    public static List<Map<String, Object>> fetchCustomers() {
+        HttpRequest req = new HttpRequest();
+        req.setEndpoint('callout:' + NAMED_CRED + '/api/v2/statements');
+        req.setMethod('POST');
+        req.setHeader('Content-Type', 'application/json');
+
+        // SQL query
+        String body = JSON.serialize(new Map<String, Object>{
+            'statement' => 'SELECT * FROM ab.abha.customer_demo;',
+            'warehouse' => 'COMPUTE_WH',
+            'database'  => 'ab',
+            'schema'    => 'abha'
+        });
+        req.setBody(body);
+
+        Http http = new Http();
+        HttpResponse res = http.send(req);
+
+        System.debug('Snowflake raw response: ' + res.getBody());
+
+        // Parse JSON response
+        Map<String, Object> responseMap = (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
+        List<Object> rows = (List<Object>) responseMap.get('data'); // Snowflake returns rows in "data"
+
+        List<Map<String, Object>> customers = new List<Map<String, Object>>();
+        for (Object rowObj : rows) {
+            List<Object> row = (List<Object>) rowObj;
+            Map<String, Object> customer = new Map<String, Object>();
+            customer.put('id', row[0]);
+            customer.put('name', row[1]);
+            customer.put('email', row[2]);
+            customer.put('created_at', row[3]);
+            customers.add(customer);
+        }
+
+        return customers;
+    }
+}
+
+run class: List<Map<String, Object>> customers = SnowflakeService.fetchCustomers();
+for (Map<String, Object> cust : customers) {
+    System.debug('Customer: ' + cust);
+}
+
+all flow is done 
